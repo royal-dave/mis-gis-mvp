@@ -2,6 +2,7 @@ import streamlit as st
 import psycopg2
 import pandas as pd
 from datetime import datetime
+import io
 
 import folium
 from streamlit_folium import st_folium
@@ -188,6 +189,22 @@ elif menu == "🌍 GIS Map View":
         # Apply filters
         filtered_df = apply_filters(df, selected_dept, selected_status)
 
+        def to_excel_bytes(df):
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name="Assets")
+            return output.getvalue()
+
+        st.markdown("### ⬇️ Download Report")
+
+        excel_data = to_excel_bytes(filtered_df)
+        st.download_button(
+            label="Download Excel Report",
+            data=excel_data,
+            file_name="assets_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
         st.markdown("### 📊 Summary")
         c1, c2, c3, c4 = st.columns(4)
 
@@ -244,4 +261,5 @@ elif menu == "🛠️ Manage Assets (Update/Delete)":
             delete_asset(delete_id)
             st.warning(f"Deleted Asset ID {delete_id}")
             st.rerun()
+
 
