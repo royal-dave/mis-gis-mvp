@@ -67,6 +67,14 @@ def delete_asset(asset_id):
     cur.close()
     conn.close()
 
+def apply_filters(df, department, status):
+    if department != "All":
+        df = df[df["department"] == department]
+    if status != "All":
+        df = df[df["status"] == status]
+    return df
+    
+
 # ---------------- APP START ----------------
 st.set_page_config(page_title="MIS + GIS MVP", layout="wide")
 init_db()
@@ -156,6 +164,7 @@ if menu == "➕ Add Asset (MIS Form)":
             st.success("✅ Asset saved successfully!")
 
 # ---------------- PAGE 2: GIS MAP VIEW ----------------
+
 elif menu == "🌍 GIS Map View":
     st.subheader("🌍 GIS Map View (OpenStreetMap)")
 
@@ -164,12 +173,39 @@ elif menu == "🌍 GIS Map View":
     if df.empty:
         st.warning("No assets added yet. Add assets first.")
     else:
-        map_df = df.rename(columns={"latitude": "lat", "longitude": "lon"})
-        st.map(map_df[["lat", "lon"]])
+        st.markdown("### 🔍 Filters")
 
-        st.markdown("### 🔎 Assets")
-        st.dataframe(df, use_container_width=True)
+        colF1, colF2 = st.columns(2)
 
+        with colF1:
+            dept_options = ["All"] + sorted(df["department"].unique().tolist())
+            selected_dept = st.selectbox("Department", dept_options)
+
+        with colF2:
+            status_options = ["All"] + ["Proposed", "In Progress", "Completed"]
+            selected_status = st.selectbox("Status", status_options)
+
+        # Apply filters
+        filtered_df = apply_filters(df, selected_dept, selected_status)
+
+        st.markdown("### 📊 Summary")
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric("Total", len(filtered_df))
+        c2.metric("Proposed", int((filtered_df["status"] == "Proposed").sum()))
+        c3.metric("In Progress", int((filtered_df["status"] == "In Progress").sum()))
+        c4.metric("Completed", int((filtered_df["status"] == "Completed").sum()))
+
+        st.markdown("### 🗺️ Map")
+        if filtered_df.empty:
+            st.warning("No assets match the selected filters.")
+        else:
+            map_df = filtered_df.rename(columns={"latitude": "lat", "longitude": "lon"})
+            st.map(map_df[["lat", "lon"]])
+
+        st.markdown("### 📋 Filtered Assets")
+        st.dataframe(filtered_df, use_container_width=True)
+        
 # ---------------- PAGE 3: TABLE VIEW ----------------
 elif menu == "📋 Asset Table":
     st.subheader("📋 Asset Table")
@@ -208,3 +244,4 @@ elif menu == "🛠️ Manage Assets (Update/Delete)":
             delete_asset(delete_id)
             st.warning(f"Deleted Asset ID {delete_id}")
             st.rerun()
+
