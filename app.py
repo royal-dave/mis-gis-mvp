@@ -47,13 +47,38 @@ def fetch_assets():
     conn.close()
     return df
 
+def update_asset_status(asset_id, new_status):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE assets
+        SET status = %s
+        WHERE id = %s
+    """, (new_status, asset_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def delete_asset(asset_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM assets WHERE id = %s", (asset_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
 # ---------------- APP START ----------------
 st.set_page_config(page_title="MIS + GIS MVP", layout="wide")
 init_db()
 
 st.title("🗺️ MIS + GIS MVP (Streamlit)")
 
-menu = st.sidebar.radio("Navigation", ["➕ Add Asset (MIS Form)", "🌍 GIS Map View", "📋 Asset Table"])
+menu = st.sidebar.radio("Navigation", [
+    "➕ Add Asset (MIS Form)",
+    "🌍 GIS Map View",
+    "📋 Asset Table",
+    "🛠️ Manage Assets (Update/Delete)"
+])
 
 # ---------------- CITY COORDINATES ----------------
 city_coords = {
@@ -155,3 +180,31 @@ elif menu == "📋 Asset Table":
     else:
         st.dataframe(df, use_container_width=True)
 
+elif menu == "🛠️ Manage Assets (Update/Delete)":
+    st.subheader("🛠️ Manage Assets (Update/Delete)")
+
+    df = fetch_assets()
+
+    if df.empty:
+        st.warning("No assets found.")
+    else:
+        st.dataframe(df, use_container_width=True)
+
+        st.markdown("### ✅ Update Asset Status")
+        asset_id = st.number_input("Enter Asset ID", min_value=1, step=1)
+        new_status = st.selectbox("New Status", ["Proposed", "In Progress", "Completed"])
+
+        if st.button("Update Status"):
+            update_asset_status(asset_id, new_status)
+            st.success(f"Updated Asset ID {asset_id} status to {new_status}")
+            st.rerun()
+
+        st.markdown("---")
+
+        st.markdown("### 🗑️ Delete Asset")
+        delete_id = st.number_input("Enter Asset ID to Delete", min_value=1, step=1, key="delete_id")
+
+        if st.button("Delete Asset"):
+            delete_asset(delete_id)
+            st.warning(f"Deleted Asset ID {delete_id}")
+            st.rerun()
