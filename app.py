@@ -84,6 +84,7 @@ if st.session_state.role in ["entry", "admin"]:
 
 if st.session_state.role == "admin":
     pages.append("🛠️ Manage Assets (Update/Delete)")
+    pages.append("👤 User Management (Admin)")
 
 menu = st.sidebar.radio("Navigation", pages)
 
@@ -254,3 +255,29 @@ elif menu == "🛠️ Manage Assets (Update/Delete)":
             delete_asset(delete_id)
             st.warning(f"Deleted Asset ID {delete_id}")
             st.rerun()
+
+
+elif menu == "👤 User Management (Admin)":
+    if st.session_state.role != "admin":
+        st.error("Access denied.")
+        st.stop()
+
+    from src.db import create_or_update_user
+    from src.security import hash_password
+
+    st.subheader("👤 User Management (Admin)")
+
+    with st.form("create_user_form"):
+        new_username = st.text_input("Username").strip().lower()
+        new_password = st.text_input("Password", type="password")
+        role = st.selectbox("Role", ["viewer", "entry", "admin"])
+
+        submit_user = st.form_submit_button("Create / Update User")
+
+    if submit_user:
+        if not new_username or not new_password:
+            st.error("Username and password required.")
+        else:
+            password_hash = hash_password(new_password)
+            create_or_update_user(new_username, password_hash, role)
+            st.success(f"✅ User '{new_username}' created/updated as {role}")
