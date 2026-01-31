@@ -61,3 +61,17 @@ def delete_asset(asset_id):
     conn.commit()
     cur.close()
     conn.close()
+
+def create_or_update_user(username, password_hash, role):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO users (username, password_hash, role)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (username) DO UPDATE
+        SET password_hash = EXCLUDED.password_hash,
+            role = EXCLUDED.role
+    """, (username, password_hash, role))
+    conn.commit()
+    cur.close()
+    conn.close()
