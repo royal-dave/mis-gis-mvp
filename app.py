@@ -75,19 +75,68 @@ def apply_filters(df, department, status):
         df = df[df["status"] == status]
     return df
     
+def check_user(username, password):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT username, role FROM users WHERE username=%s AND password=%s",
+        (username, password)
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row  # None or (username, role)
+    
 
 # ---------------- APP START ----------------
 st.set_page_config(page_title="MIS + GIS MVP", layout="wide")
 init_db()
 
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = None
+    st.session_state.role = None
 st.title("🗺️ MIS + GIS MVP (Streamlit)")
 
-menu = st.sidebar.radio("Navigation", [
-    "➕ Add Asset (MIS Form)",
-    "🌍 GIS Map View",
-    "📋 Asset Table",
-    "🛠️ Manage Assets (Update/Delete)"
-])
+if not st.session_state.logged_in:
+    st.subheader("🔐 Login")
+
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        login_btn = st.form_submit_button("Login")
+
+    if login_btn:
+        result = check_user(username.strip(), password.strip())
+        if result:
+            st.session_state.logged_in = True
+            st.session_state.username = result[0]
+            st.session_state.role = result[1]
+            st.success(f"Welcome {result[0]} ({result[1]})")
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+    st.stop()
+
+st.sidebar.success(f"Logged in as: {st.session_state.username} ({st.session_state.role})")
+
+if st.sidebar.button("Logout"):
+    st.session_state.logged_in = False
+    st.session_state.username = None
+    st.session_state.role = None
+    st.rerun()
+    
+pages = ["🌍 GIS Map View", "📋 Asset Table"]
+
+if st.session_state.role in ["entry", "admin"]:
+    pages.insert(0, "➕ Add Asset (MIS Form)")
+
+if st.session_state.role == "admin":
+    pages.append("🛠️ Manage Assets (Update/Delete)")
+
+menu = st.sidebar.radio("Navigation", pages)
+
 
 # ---------------- CITY COORDINATES ----------------
 city_coords = {
@@ -261,5 +310,6 @@ elif menu == "🛠️ Manage Assets (Update/Delete)":
             delete_asset(delete_id)
             st.warning(f"Deleted Asset ID {delete_id}")
             st.rerun()
+
 
 
