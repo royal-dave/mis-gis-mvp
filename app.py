@@ -1,103 +1,50 @@
 import streamlit as st
-import psycopg2
 import pandas as pd
-from datetime import datetime
 import io
 
 import folium
 from streamlit_folium import st_folium
 
+# ✅ import from your separated files
+from src.db import (
+    init_db,
+    fetch_assets,
+    insert_asset,
+    update_asset_status,
+    delete_asset,
+)
+from src.auth import check_user
 
-# ---------------- DB FUNCTIONS ----------------
-def get_conn():
-    db_url = st.secrets["SUPABASE_DB_URL"]
-    return psycopg2.connect(db_url)
 
-def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS assets (
-            id BIGSERIAL PRIMARY KEY,
-            asset_name TEXT NOT NULL,
-            department TEXT NOT NULL,
-            status TEXT NOT NULL,
-            latitude DOUBLE PRECISION NOT NULL,
-            longitude DOUBLE PRECISION NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def insert_asset(asset_name, department, status, lat, lon):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO assets (asset_name, department, status, latitude, longitude)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (asset_name, department, status, lat, lon))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def fetch_assets():
-    conn = get_conn()
-    df = pd.read_sql_query("SELECT * FROM assets ORDER BY id DESC", conn)
-    conn.close()
-    return df
-
-def update_asset_status(asset_id, new_status):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE assets
-        SET status = %s
-        WHERE id = %s
-    """, (new_status, asset_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def delete_asset(asset_id):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM assets WHERE id = %s", (asset_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def apply_filters(df, department, status):
+# ---------------- HELPERS ----------------
+def apply_filters(df: pd.DataFrame, department: str, status: str) -> pd.DataFrame:
     if department != "All":
         df = df[df["department"] == department]
     if status != "All":
         df = df[df["status"] == status]
     return df
-    
-def check_user(username, password):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT username, role FROM users WHERE username=%s AND password=%s",
-        (username, password)
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return row  # None or (username, role)
-    
+
+
+def to_excel_bytes(df: pd.DataFrame) -> bytes:
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Assets")
+    return output.getvalue()
+
 
 # ---------------- APP START ----------------
 st.set_page_config(page_title="MIS + GIS MVP", layout="wide")
 init_db()
 
+# session init
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = None
     st.session_state.role = None
+
 st.title("🗺️ MIS + GIS MVP (Streamlit)")
 
+# ---------------- LOGIN ----------------
 if not st.session_state.logged_in:
     st.subheader("🔐 Login")
 
@@ -119,14 +66,17 @@ if not st.session_state.logged_in:
 
     st.stop()
 
-st.sidebar.success(f"Logged in as: {st.session_state.username} ({st.session_state.role})")
+# ---------------- SIDEBAR ----------------
+st.sidebar.success(
+    f"Logged in as: {st.session_state.username} ({st.session_state.role})"
+)
 
 if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
     st.session_state.username = None
     st.session_state.role = None
     st.rerun()
-    
+
 pages = ["🌍 GIS Map View", "📋 Asset Table"]
 
 if st.session_state.role in ["entry", "admin"]:
@@ -136,7 +86,6 @@ if st.session_state.role == "admin":
     pages.append("🛠️ Manage Assets (Update/Delete)")
 
 menu = st.sidebar.radio("Navigation", pages)
-
 
 # ---------------- CITY COORDINATES ----------------
 city_coords = {
@@ -157,14 +106,13 @@ if menu == "➕ Add Asset (MIS Form)":
     if "clicked_lon" not in st.session_state:
         st.session_state.clicked_lon = None
 
-    # Choose city to zoom map
     city = st.selectbox("Choose City (Map will zoom)", list(city_coords.keys()))
     center_lat, center_lon = city_coords[city]
 
     st.markdown("### 🗺️ Click on map to pick asset location")
     m = folium.Map(location=[center_lat, center_lon], zoom_start=11)
 
-    # show existing points on map too (very useful)
+    # show existing points on map too
     df_existing = fetch_assets()
     if not df_existing.empty:
         for _, row in df_existing.iterrows():
@@ -175,7 +123,6 @@ if menu == "➕ Add Asset (MIS Form)":
 
     map_data = st_folium(m, height=450, width=900)
 
-    # If user clicked on map, capture coordinates
     if map_data and map_data.get("last_clicked"):
         st.session_state.clicked_lat = map_data["last_clicked"]["lat"]
         st.session_state.clicked_lon = map_data["last_clicked"]["lng"]
@@ -191,7 +138,9 @@ if menu == "➕ Add Asset (MIS Form)":
 
     with st.form("asset_form"):
         asset_name = st.text_input("Asset Name", placeholder="e.g., Street Light 101")
-        department = st.selectbox("Department", ["Water", "Road", "Electricity", "Drainage", "Other"])
+        department = st.selectbox(
+            "Department", ["Water", "Road", "Electricity", "Drainage", "Other"]
+        )
         status = st.selectbox("Status", ["Proposed", "In Progress", "Completed"])
 
         col1, col2 = st.columns(2)
@@ -212,19 +161,17 @@ if menu == "➕ Add Asset (MIS Form)":
         else:
             insert_asset(asset_name.strip(), department, status, lat, lon)
             st.success("✅ Asset saved successfully!")
+            st.rerun()
 
 # ---------------- PAGE 2: GIS MAP VIEW ----------------
-
 elif menu == "🌍 GIS Map View":
     st.subheader("🌍 GIS Map View (OpenStreetMap)")
 
     df = fetch_assets()
-
     if df.empty:
         st.warning("No assets added yet. Add assets first.")
     else:
         st.markdown("### 🔍 Filters")
-
         colF1, colF2 = st.columns(2)
 
         with colF1:
@@ -232,31 +179,13 @@ elif menu == "🌍 GIS Map View":
             selected_dept = st.selectbox("Department", dept_options)
 
         with colF2:
-            status_options = ["All"] + ["Proposed", "In Progress", "Completed"]
+            status_options = ["All", "Proposed", "In Progress", "Completed"]
             selected_status = st.selectbox("Status", status_options)
 
-        # Apply filters
         filtered_df = apply_filters(df, selected_dept, selected_status)
-
-        def to_excel_bytes(df):
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False, sheet_name="Assets")
-            return output.getvalue()
-
-        st.markdown("### ⬇️ Download Report")
-
-        excel_data = to_excel_bytes(filtered_df)
-        st.download_button(
-            label="Download Excel Report",
-            data=excel_data,
-            file_name="assets_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
 
         st.markdown("### 📊 Summary")
         c1, c2, c3, c4 = st.columns(4)
-
         c1.metric("Total", len(filtered_df))
         c2.metric("Proposed", int((filtered_df["status"] == "Proposed").sum()))
         c3.metric("In Progress", int((filtered_df["status"] == "In Progress").sum()))
@@ -271,7 +200,16 @@ elif menu == "🌍 GIS Map View":
 
         st.markdown("### 📋 Filtered Assets")
         st.dataframe(filtered_df, use_container_width=True)
-        
+
+        st.markdown("### ⬇️ Download Report")
+        excel_data = to_excel_bytes(filtered_df)
+        st.download_button(
+            label="Download Excel Report",
+            data=excel_data,
+            file_name="assets_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
 # ---------------- PAGE 3: TABLE VIEW ----------------
 elif menu == "📋 Asset Table":
     st.subheader("📋 Asset Table")
@@ -282,9 +220,13 @@ elif menu == "📋 Asset Table":
     else:
         st.dataframe(df, use_container_width=True)
 
+# ---------------- PAGE 4: ADMIN MANAGE ----------------
 elif menu == "🛠️ Manage Assets (Update/Delete)":
-    st.subheader("🛠️ Manage Assets (Update/Delete)")
+    if st.session_state.role != "admin":
+        st.error("Access denied.")
+        st.stop()
 
+    st.subheader("🛠️ Manage Assets (Update/Delete)")
     df = fetch_assets()
 
     if df.empty:
@@ -304,12 +246,11 @@ elif menu == "🛠️ Manage Assets (Update/Delete)":
         st.markdown("---")
 
         st.markdown("### 🗑️ Delete Asset")
-        delete_id = st.number_input("Enter Asset ID to Delete", min_value=1, step=1, key="delete_id")
+        delete_id = st.number_input(
+            "Enter Asset ID to Delete", min_value=1, step=1, key="delete_id"
+        )
 
         if st.button("Delete Asset"):
             delete_asset(delete_id)
             st.warning(f"Deleted Asset ID {delete_id}")
             st.rerun()
-
-
-
