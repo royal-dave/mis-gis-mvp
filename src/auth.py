@@ -1,3 +1,5 @@
+from src.db import get_conn
+
 def check_user(username, password):
     conn = get_conn()
     cur = conn.cursor()
