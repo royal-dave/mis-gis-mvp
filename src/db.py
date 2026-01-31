@@ -1,3 +1,7 @@
+import streamlit as st
+import psycopg2
+import pandas as pd
+
 # ---------------- DB FUNCTIONS ----------------
 def get_conn():
     db_url = st.secrets["SUPABASE_DB_URL"]
